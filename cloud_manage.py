@@ -81,11 +81,19 @@ def check(body):
     except Exception:
         source_error = '发行目录 API 暂时无法读取，请稍后重试；未改用普通上传搜索。'
     if references:
-        source_error = '已查询正式发行目录并核对歌手、歌名和专辑曲目。多个专辑可能收录同一首歌，请核对具体版本。资料查询不会修改云盘；网易云关联目标尚未验证时不提供改绑。'
-    token = keep(REPORTS, dict(uid=uid, before=before, candidates=candidates))
+        source_error = '已查询正式发行目录并核对歌手、歌名和专辑曲目。多个专辑可能收录同一首歌，请核对具体版本。选择正确专辑后点击“使用这份信息”，核对修改前后差异，再由你确认。'
+    token = keep(REPORTS, dict(uid=uid, before=before, candidates=candidates, references=references))
     return {'report_id': token, 'before': before, 'issues': issues, 'candidates': candidates,
             'references': references, 'query': query, 'title_query': title, 'artist_query': artist,
             'message': source_error or ('请填写歌手后重查；无法确认官方来源时不推荐。' if not artist else '发行目录中未找到歌名和歌手均一致的记录，请核对名称。不会回退到普通用户上传结果。')}
+
+def release_matches(song, reference):
+    # Only an exact cross-catalog release match can become an actionable target.
+    if not all(norm(song.get(key, '')) and norm(song.get(key, '')) == norm(reference.get(key, ''))
+               for key in ('title', 'artist', 'album')):
+        return False
+    a, b = song.get('duration'), reference.get('duration')
+    return isinstance(a, (int, float)) and isinstance(b, (int, float)) and a > 0 and b > 0 and abs(a-b) <= 3
 
 def prepare(body):
     with CLIENT.lock:
@@ -94,13 +102,28 @@ def prepare(body):
         if kind == 'delete':
             before = rpc('detail', uid, id=body.get('id'))
             after = None
-        elif kind == 'match':
+        elif kind in ('match', 'reference'):
             report = valid(REPORTS, body.get('report_id'), uid)
             before = report['before']
-            selected = next((x for x in report['candidates'] if x['id'] == str(body.get('target_id'))), None)
-            if not selected:
-                raise NcmError('请选择本次检查中的候选版本。')
-            after = rpc('song', uid, target_id=selected['id'])
+            if kind == 'reference':
+                index = body.get('reference_index')
+                refs = report.get('references', [])
+                if type(index) is not int or not 0 <= index < len(refs):
+                    raise NcmError('请选择本次检查中的发行记录。')
+                reference = refs[index]
+                rows = rpc('search', uid, query=reference['title']+' '+reference['artist'])['items']
+                selected = next((row for row in rows if release_matches(row, reference)), None)
+                if not selected:
+                    raise NcmError('这份发行资料没有找到歌名、歌手、专辑和时长一致的网易云曲库版本，暂时无法修正云盘关联。请试另一张专辑；尚未修改任何歌曲。')
+                after = rpc('song', uid, target_id=selected['id'])
+                if not release_matches(after, reference):
+                    raise NcmError('网易云版本资料与所选发行记录不一致，已停止；尚未修改。')
+                kind = 'match'
+            else:
+                selected = next((x for x in report['candidates'] if x['id'] == str(body.get('target_id'))), None)
+                if not selected:
+                    raise NcmError('请选择本次检查中的候选版本。')
+                after = rpc('song', uid, target_id=selected['id'])
             latest = rpc('detail', uid, id=before['id'])
             if latest['fingerprint'] != before['fingerprint']:
                 raise NcmError('歌曲信息已变化，请重新联网检查。')
