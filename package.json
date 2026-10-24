@@ -1,0 +1,9 @@
+{
+  "name": "local-music-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local NetEase music cloud adapter",
+  "dependencies": {
+    "NeteaseCloudMusicApi": "4.32.0"
+  }
+}
