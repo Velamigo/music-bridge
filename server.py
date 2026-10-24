@@ -18,6 +18,7 @@ import music_bridge
 import download_progress
 import ncm_client
 import cloud_art
+import cloud_repair
 import cloud_manage
 import local_bridge
 import download_settings
@@ -328,6 +329,10 @@ def worker(key, action, body):
             finally:
                 DOWNLOAD_LOCK.release()
             update(key, status='done', folder=str(folder), message='下载目录已保存')
+        elif action in ('ncm_repair_preview', 'ncm_repair_apply'):
+            function = cloud_repair.preview if action == 'ncm_repair_preview' else cloud_repair.apply
+            result = function(body, lambda text:update(key,message=text))
+            update(key,status='done',result=result,message=result.get('message','云盘匹配检查完成'))
         elif action in ('ncm_snapshot', 'ncm_check', 'ncm_prepare', 'ncm_apply', 'ncm_folders'):
             update(key, message='正在联网检查，尚未修改云盘…' if action == 'ncm_check' else '正在处理云盘管理请求…')
             functions = {'ncm_snapshot': cloud_manage.snapshot, 'ncm_check': cloud_manage.check, 'ncm_prepare': cloud_manage.prepare, 'ncm_apply': cloud_manage.apply,
@@ -518,7 +523,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'error':'请先连接这台 Mac'},401)
         if self.path not in ('/api/search', '/api/download', '/api/album', '/api/match', '/api/track',
                              '/api/ncm_qr', '/api/ncm_poll', '/api/ncm_disconnect', '/api/ncm_list', '/api/ncm_upload', '/api/ncm_verify',
-                             '/api/song_sources', '/api/metadata', '/api/directory_choose', '/api/directory', '/api/ncm_snapshot', '/api/ncm_check', '/api/ncm_prepare', '/api/ncm_apply', '/api/ncm_folders'):
+                             '/api/song_sources', '/api/metadata', '/api/directory_choose', '/api/directory', '/api/ncm_repair_preview', '/api/ncm_repair_apply', '/api/ncm_snapshot', '/api/ncm_check', '/api/ncm_prepare', '/api/ncm_apply', '/api/ncm_folders'):
             return self.reply({'error': 'Not found'}, 404)
         try:
             length = int(self.headers.get('Content-Length', 0))

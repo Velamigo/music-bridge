@@ -4,7 +4,7 @@ function id(value) { if (!/^\d{1,20}$/.test(String(value))) fail('无效的歌�
 function catalog(song) {
   return { id: String(song.id || ''), title: song.name || '',
     artist: (song.ar || song.artists || []).map(x => x.name).filter(Boolean).join(' / '),
-    album: (song.al || song.album || {}).name || '', duration: Math.round((song.dt || song.duration || 0) / 1000) };
+    album: (song.al || song.album || {}).name || '', album_id: Number((song.al || song.album || {}).id || 0), cover: Number((song.al || song.album || {}).pic || 0)>0 && /^https:\/\//.test((song.al || song.album || {}).picUrl || '') ? (song.al || song.album).picUrl : '', duration: Math.round((song.dt || song.duration || 0) / 1000) };
 }
 function displayField(stored, linked) {
   const value = String(stored || '').trim();
