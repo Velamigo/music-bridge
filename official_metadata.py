@@ -63,6 +63,7 @@ def reference(track,release,country):
       'date':str(release.get('releaseDate',''))[:10],'duration':round(track.get('trackTimeMillis',0)/1000),
       'track':track.get('trackNumber'),'disc':track.get('discNumber'),'publisher':release['copyright'],
       'url':link,'artist_id':str(track['artistId']),'album_id':str(release['collectionId']),
+      'artwork':track.get('artworkUrl100') or release.get('artworkUrl100') or '',
       'source':'Apple iTunes 正式发行目录','country':country,
       'source_note':'已核对歌手、歌名及专辑曲目 ID；平台目录记录不等于原唱身份认证。'}
 

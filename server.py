@@ -17,6 +17,7 @@ from difflib import SequenceMatcher
 import music_bridge
 import download_progress
 import ncm_client
+import cloud_art
 import cloud_manage
 import local_bridge
 import download_settings
@@ -335,7 +336,9 @@ def worker(key, action, body):
             update(key, status='done', result=result, message=result.get('message', '分类已更新'))
         elif action in ('ncm_qr', 'ncm_poll', 'ncm_disconnect', 'ncm_list'):
             commands = {'ncm_qr': 'qr_start', 'ncm_poll': 'qr_poll', 'ncm_disconnect': 'disconnect', 'ncm_list': 'list'}
-            result = ncm_client.CLIENT.call(commands[action], {'offset': body.get('offset', 0)})
+            result = ncm_client.CLIENT.call(commands[action], {'offset': body.get('offset', 0)}, timeout=180)
+            if action == 'ncm_list':
+                cloud_art.enrich(result['items'])
             update(key, status='done', result=result, message=result.get('message', '网易云状态已更新'))
         elif action in ('ncm_upload', 'ncm_verify'):
             filename = str(body.get('file', ''))
