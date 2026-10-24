@@ -6,11 +6,15 @@ function catalog(song) {
     artist: (song.ar || song.artists || []).map(x => x.name).filter(Boolean).join(' / '),
     album: (song.al || song.album || {}).name || '', duration: Math.round((song.dt || song.duration || 0) / 1000) };
 }
+function displayField(stored, linked) {
+  const value = String(stored || '').trim();
+  return /^(未知.*|unknown.*|undefined|null|none|)$/i.test(value) ? (linked || value) : value;
+}
 function cloudRow(row) {
   const linked = catalog(row.simpleSong || {});
   const stored = { title: row.songName || '', artist: row.artist || '', album: row.album || '' };
   const result = { id: String(row.songId || row.simpleSong?.id || ''),
-    title: stored.title || linked.title, artist: stored.artist || linked.artist, album: stored.album || linked.album,
+    title: displayField(stored.title, linked.title), artist: displayField(stored.artist, linked.artist), album: displayField(stored.album, linked.album),
     added_at: Number(row.addTime || 0), cover: /^https:\/\//.test(row.simpleSong?.al?.picUrl || '') ? row.simpleSong.al.picUrl : '',
     filename: row.fileName || '', size: Number(row.fileSize || 0), duration: linked.duration,
     stored, catalog: linked };
