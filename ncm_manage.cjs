@@ -38,7 +38,7 @@ async function handle(action, args, context) {
   if (action === 'manage_search') {
     const query = String(args.query || '').trim();
     if (!query || query.length > 300) fail('请填写 1–300 字的歌曲或歌手线索。');
-    const data = await request('cloudsearch', { keywords: query, type: 1, limit: 8 });
+    const data = await request('cloudsearch', { keywords: query, type: 1, limit: 50 });
     return { items: (data.result?.songs || []).map(catalog) };
   }
   if (action === 'manage_song') {
