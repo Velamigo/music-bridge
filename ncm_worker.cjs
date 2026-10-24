@@ -98,7 +98,7 @@ async function handle(action, args) {
     needLogin();
     const offset = Math.max(0, Math.min(100000, Number(args.offset) || 0));
     const data = await request('user_cloud', { limit: 50, offset });
-    return { items: (data.data || []).map(cloudRow), count: data.count, more: !!(data.hasMore || data.more), offset, account_id: user.id };
+    return { items: await require('./cloud_covers.cjs').enrich((data.data || []).map(cloudRow), request), count: data.count, more: !!(data.hasMore || data.more), offset, account_id: user.id };
   }
   if (action === 'verify') return verify(args);
   if (action === 'upload') {

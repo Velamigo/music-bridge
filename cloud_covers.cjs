@@ -1,0 +1,11 @@
+const fs=require('node:fs/promises'),path=require('node:path'),crypto=require('node:crypto');
+const folder=path.join(__dirname,'.state','covers');
+const details=new Map();
+function safeArt(value){try{const u=new URL(value);return u.protocol==='https:'&&/^(p[1-9]|p[1-9]c)\.music\.126\.net$/.test(u.hostname)?u:null}catch{return null}}
+async function localArt(value){const url=safeArt(value);if(!url)return '';url.searchParams.set('param','200y200');const key=crypto.createHash('sha256').update(url.href).digest('hex');const name=key+'.jpg',file=path.join(folder,name);try{await fs.access(file);return '/covers/'+name}catch{}
+ const response=await fetch(url,{signal:AbortSignal.timeout(10000),redirect:'error'});if(!response.ok)throw Error('Cover unavailable');if(Number(response.headers.get('content-length'))>3000000)throw Error('Cover too large');const reader=response.body.getReader();const parts=[];let length=0;while(true){const {done,value}=await reader.read();if(done)break;length+=value.length;if(length>3000000){await reader.cancel();throw Error('Cover too large')}parts.push(Buffer.from(value))}const bytes=Buffer.concat(parts);if(!(bytes[0]===255&&bytes[1]===216)&&!(bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))))throw Error('Invalid cover');await fs.mkdir(folder,{recursive:true,mode:0o700});await fs.writeFile(file,bytes,{mode:0o600});return '/covers/'+name;
+}
+async function enrich(items,request){const missing=items.filter(x=>!x.cover&&/^\d+$/.test(x.catalog?.id||''));const ids=[...new Set(missing.map(x=>x.catalog.id))].filter(id=>!details.has(id));if(ids.length){try{const data=await request('song_detail',{ids:ids.join(',')});for(const song of data.songs||[]){details.set(String(song.id),song.al?.picUrl||'')}if(details.size>5000)details.clear()}catch{}}
+ let index=0;async function worker(){while(index<items.length){const row=items[index++];try{const source=row.cover||details.get(row.catalog?.id);if(source){const cached=await localArt(source);if(cached)row.cover=cached}}catch{}}}await Promise.all([worker(),worker(),worker(),worker()]);return items;
+}
+module.exports={enrich,safeArt};

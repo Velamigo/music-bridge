@@ -438,6 +438,19 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers();self.wfile.write(raw);return
         if (route.startswith('/api/') or route.startswith('/files/')) and not self.access():
             return self.reply({'error':'请先连接这台 Mac'},401)
+        if route.startswith('/covers/'):
+            name = route.removeprefix('/covers/')
+            if not re.fullmatch(r'[a-f0-9]{64}\.jpg', name):
+                return self.reply({'error':'Invalid cover'},400)
+            path = ROOT / '.state' / 'covers' / name
+            if not path.is_file():
+                return self.reply({'error':'Not found'},404)
+            raw = path.read_bytes()
+            self.send_response(200)
+            self.send_header('Content-Type','image/png' if raw.startswith(b'\x89PNG') else 'image/jpeg')
+            self.send_header('Content-Length',str(len(raw)))
+            self.send_header('Cache-Control','public, max-age=604800')
+            self.end_headers();self.wfile.write(raw);return
         if route == '/api/status':
             return self.reply({'version': execute([YTDLP, '--version']).strip(), 'ffmpeg': bool(shutil.which('ffmpeg')), 'folder': str(download_settings.folder())})
         if route == '/api/ncm/status':
