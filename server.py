@@ -195,10 +195,38 @@ def track_candidates(track):
     candidates = youtube(track['artist'] + ' ' + track['title'], 8)
     expected = track['duration']
     # Exclude compilations, multi-song videos, and obvious alternative performances.
-    candidates = [x for x in candidates if x.get('duration') and
+    candidates = [x for x in candidates if normalized(track['title']) in normalized(x.get('title','')) and x.get('duration') and
                   abs(x['duration'] - expected) <= max(60, expected * .25) and
                   not re.search(r'full album|全集|整張|整张|串燒|串烧|聯播|联播|翻唱|伴奏|跨時空|跨时空|\b(?:karaoke|ktv|cover|live|concert|remix)\b|現場|现场|演唱會|演唱会', x['title'], re.I)]
     return ranked_sources(candidates, track['artist'], track['title'], expected)[:4]
+
+def catalog_songs(artist, song):
+    entries=apple('search',term=' '.join(x for x in (artist,song) if x),entity='song',media='music',limit=100)
+    entries=[x for x in entries if x.get('kind')=='song']
+    if artist:
+        entries=[x for x in entries if normalized(x.get('artistName',''))==normalized(artist)]
+    if song:
+        entries=[x for x in entries if normalized(song) in normalized(x.get('trackName',''))]
+    entries.sort(key=lambda x:x.get('releaseDate','9999'))
+    seen=set();result=[]
+    for x in entries:
+        key=(normalized(x['trackName']),normalized(x.get('artistName','')))
+        if key in seen:continue
+        seen.add(key)
+        result.append({'catalog_id':x['trackId'],'title':x['trackName'],'artist':x.get('artistName',''),
+            'album':x.get('collectionName',''),'duration':round(x.get('trackTimeMillis',0)/1000),
+            'track':x.get('trackNumber',0),'disc':x.get('discNumber',1),'url':x.get('trackViewUrl','')})
+    return result
+
+def source_for_catalog(catalog_id):
+    if not re.fullmatch(r'[0-9]{1,18}',str(catalog_id)):raise RuntimeError('无效的歌曲编号')
+    rows=apple('lookup',id=catalog_id,entity='song')
+    x=next((x for x in rows if x.get('kind')=='song' and str(x.get('trackId'))==str(catalog_id)),None)
+    if not x:raise RuntimeError('这首歌暂时无法读取，请重新搜索。')
+    track={'catalog_id':x['trackId'],'title':x['trackName'],'artist':x.get('artistName',''),
+        'album':x.get('collectionName',''),'duration':round(x.get('trackTimeMillis',0)/1000),
+        'track':x.get('trackNumber',0),'disc':x.get('discNumber',1)}
+    return dict(track,candidates=track_candidates(track))
 
 def download_metadata(body):
     song = field(body, 'song')
@@ -242,7 +270,10 @@ def worker(key, action, body):
             artist, album, song = (field(body, name) for name in ('artist', 'album', 'song'))
             if not any((artist, album, song)):
                 raise RuntimeError('请填写歌手、专辑或歌曲。')
-            if song:
+            if body.get('mode')=='songs':
+                results=catalog_songs(artist,song)
+                update(key,status='done',kind='catalogSongs',results=results,message=f'找到 {len(results)} 首歌曲，点击下载即可。')
+            elif song:
                 results = ranked_sources(youtube(' '.join(x for x in (artist, song, album) if x)), artist, song)
                 update(key, status='done', kind='songs', results=results, message=f'单曲搜索：{song} · 找到 {len(results)} 个音源候选')
             else:
@@ -250,6 +281,8 @@ def worker(key, action, body):
                 entries = apple('search', term=' '.join(x for x in (artist, album) if x), entity='album', limit=20)
                 results = [album_summary(x) for x in entries if x.get('collectionType') == 'Album']
                 results = narrow_albums(results, artist, album)
+                if body.get('mode')=='albums' and artist:
+                    results=[x for x in results if normalized(x['artist'])==normalized(artist)]
                 update(key, status='done', kind='albums', results=results, message=f'找到 {len(results)} 张专辑，请选择正确版本')
         elif action == 'album':
             album, tracks = album_tracks(str(body.get('id', '')))
@@ -274,6 +307,9 @@ def worker(key, action, body):
                 raise RuntimeError('曲目不在这张专辑内。')
             result = dict(track, candidates=track_candidates(track))
             update(key, status='done', track=result, message=f'找到 {len(result["candidates"])} 个单曲候选，请核对版本。')
+        elif action == 'song_sources':
+            update(key,message='正在寻找可下载版本…')
+            update(key,status='done',track=source_for_catalog(body.get('catalog_id')),message='已找到可下载版本')
         elif action == 'metadata':
             update(key, message='正在自动填写发行资料…')
             update(key, status='done', result=download_metadata(body), message='发行资料查询完成')
@@ -388,7 +424,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'error': 'Invalid host'}, 403)
         route = urlparse(self.path).path
         if route == '/api/bridge-info':
-            return self.reply({'app':'music-bridge','version':'1.0','paired':bool(self.headers.get('Origin') and self.access())})
+            return self.reply({'app':'music-bridge','version':'1.1','paired':bool(self.headers.get('Origin') and self.access())})
         if route == '/connect':
             if self.headers.get('Origin') and self.headers.get('Origin') not in local_bridge.LOCAL_ORIGINS:
                 return self.reply({'error':'Open this page directly'},403)
@@ -457,14 +493,14 @@ class Handler(BaseHTTPRequestHandler):
                 body=json.loads(self.rfile.read(length))
                 if not isinstance(body,dict): raise ValueError('请求无效')
                 token=local_bridge.pair(self.headers.get('Origin'),body.get('code',''))
-                return self.reply({'token':token})
+                return self.reply({'token':token,'version':'1.1'})
             except (ValueError,TypeError) as exc:
                 return self.reply({'error':str(exc)},403)
         if not self.access():
             return self.reply({'error':'请先连接这台 Mac'},401)
         if self.path not in ('/api/search', '/api/download', '/api/album', '/api/match', '/api/track',
                              '/api/ncm_qr', '/api/ncm_poll', '/api/ncm_disconnect', '/api/ncm_list', '/api/ncm_upload', '/api/ncm_verify',
-                             '/api/metadata', '/api/directory_choose', '/api/directory', '/api/ncm_snapshot', '/api/ncm_check', '/api/ncm_prepare', '/api/ncm_apply', '/api/ncm_folders'):
+                             '/api/song_sources', '/api/metadata', '/api/directory_choose', '/api/directory', '/api/ncm_snapshot', '/api/ncm_check', '/api/ncm_prepare', '/api/ncm_apply', '/api/ncm_folders'):
             return self.reply({'error': 'Not found'}, 404)
         try:
             length = int(self.headers.get('Content-Length', 0))
