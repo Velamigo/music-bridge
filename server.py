@@ -15,6 +15,7 @@ from functools import lru_cache
 import unicodedata
 from difflib import SequenceMatcher
 import music_bridge
+import download_progress
 import ncm_client
 import cloud_manage
 import local_bridge
@@ -218,6 +219,7 @@ def catalog_songs(artist, song):
             'track':x.get('trackNumber',0),'disc':x.get('discNumber',1),'url':x.get('trackViewUrl','')})
     return result
 
+@lru_cache(maxsize=256)
 def source_for_catalog(catalog_id):
     if not re.fullmatch(r'[0-9]{1,18}',str(catalog_id)):raise RuntimeError('无效的歌曲编号')
     rows=apple('lookup',id=catalog_id,entity='song')
@@ -362,7 +364,7 @@ def worker(key, action, body):
                 if dest.exists():
                     music_bridge.inspect(dest)
                 else:
-                    execute(cmd, timeout=900)
+                    download_progress.run(cmd,lambda values:update(key,**values),timeout=900)
                     music_bridge.inspect(dest)
                     meta = {k: str(body.get(k, '')) for k in ('title', 'artist', 'album', 'track', 'disc')}
                     meta.update(id=video, downloaded_at=time.time(), file=dest.name)
@@ -370,14 +372,14 @@ def worker(key, action, body):
             cloud = None
             message = '下载完成 · M4A / AAC · 未重新编码'
             if body.get('upload') is True:
-                update(key, message='M4A 已保存，正在上传并核对网易云云盘…', file=dest.name)
+                update(key,stage='uploading',progress=None,message='下载完成，正在上传网易云盘…',file=dest.name)
                 try:
-                    cloud = ncm_client.upload(dest, body.get('user_id'))
+                    cloud = ncm_client.upload(dest, body.get('user_id'), onprogress=lambda stage,text:update(key,stage=stage,progress=None,message=text))
                     message += '；' + cloud['message']
                 except ncm_client.NcmError as exc:
                     cloud = {'state': 'error', 'message': str(exc)}
                     message += '；上传未完成：' + str(exc)
-            update(key, status='done', message=message, file=dest.name, cloud=cloud)
+            update(key,status='done',stage='done',progress=None,message=message,file=dest.name,cloud=cloud)
     except subprocess.TimeoutExpired:
         update(key, status='error', message='请求超时，可稍后重试。')
     except Exception as exc:
@@ -424,7 +426,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply({'error': 'Invalid host'}, 403)
         route = urlparse(self.path).path
         if route == '/api/bridge-info':
-            return self.reply({'app':'music-bridge','version':'1.1','paired':bool(self.headers.get('Origin') and self.access())})
+            return self.reply({'app':'music-bridge','version':'1.2','paired':bool(self.headers.get('Origin') and self.access())})
         if route == '/connect':
             if self.headers.get('Origin') and self.headers.get('Origin') not in local_bridge.LOCAL_ORIGINS:
                 return self.reply({'error':'Open this page directly'},403)
@@ -493,7 +495,7 @@ class Handler(BaseHTTPRequestHandler):
                 body=json.loads(self.rfile.read(length))
                 if not isinstance(body,dict): raise ValueError('请求无效')
                 token=local_bridge.pair(self.headers.get('Origin'),body.get('code',''))
-                return self.reply({'token':token,'version':'1.1'})
+                return self.reply({'token':token,'version':'1.2'})
             except (ValueError,TypeError) as exc:
                 return self.reply({'error':str(exc)},403)
         if not self.access():

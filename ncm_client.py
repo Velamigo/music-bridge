@@ -105,10 +105,12 @@ def upload_state(path):
         return {k: record.get(k) for k in ('state', 'message', 'cloud_id', 'updated_at')}
     return None
 
-def upload(path, expected_uid, verify_only=False):
+def upload(path, expected_uid, verify_only=False, onprogress=None):
     if not re.fullmatch(r'[A-Za-z0-9_-]{11}\.m4a', path.name) or (path.is_symlink() or path.parent.resolve() != download_settings.folder().resolve()):
         raise NcmError('只能上传本工具下载的 M4A 文件。')
+    report=onprogress or (lambda stage,text:None)
     with CLIENT.lock:
+        report('verifying','正在检查网易云账号和已有记录…')
         status = CLIENT.call('refresh')
         uid = status['user']['id']
         if not expected_uid or str(expected_uid) != uid:
@@ -142,10 +144,12 @@ def upload(path, expected_uid, verify_only=False):
         ledger[key] = record
         write_ledger(ledger)  # Persist before issuing the non-idempotent upload request.
         try:
+            report('uploading','下载完成，正在上传网易云盘…')
             result = CLIENT.call('upload', {'file': path.name, 'path': str(path.resolve()), 'md5': md5}, timeout=300)
             record.update(state='accepted', message='接口已接受，正在核对云盘', cloud_id=result.get('cloud_id', ''), updated_at=time.time())
             write_ledger(ledger)
             verification.update(cloud_id=record['cloud_id'])
+            report('verifying','上传已提交，正在核对网易云盘…')
             found = CLIENT.call('verify', verification, timeout=180)
             if found.get('found'):
                 record.update(state='verified', message='已上传并在网易云云盘核对成功', cloud_id=found['row']['id'])

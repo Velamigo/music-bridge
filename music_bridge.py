@@ -11,6 +11,8 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent
 YTDLP = str(ROOT / '.venv/bin/yt-dlp') if (ROOT / '.venv/bin/yt-dlp').exists() else 'yt-dlp'
 
+PROGRESS_TEMPLATE = 'download:MB_PROGRESS {"downloaded":%(progress.downloaded_bytes)j,"total":%(progress.total_bytes|0)j,"estimate":%(progress.total_bytes_estimate|0)j,"speed":%(progress.speed|null)j,"eta":%(progress.eta|null)j,"status":%(progress.status)j}'
+
 def run(args):
     return subprocess.check_output(args, text=True)
 
@@ -62,18 +64,30 @@ def main():
     with tempfile.TemporaryDirectory(dir=target) as tmp:
         report = Path(tmp) / 'path.txt'
         common = [YTDLP, '--ignore-config', '--no-playlist', '--no-overwrites',
+                  '--newline', '--progress', '--progress-delta', '0.5', '--no-colors',
+                  '--progress-template', PROGRESS_TEMPLATE,
                   '-f', 'bestaudio[ext=m4a][acodec^=mp4a]',
                   '-o', str(Path(tmp) / '%(id)s.%(ext)s'),
                   '--print-to-file', 'after_move:filepath', str(report), '--', a.url]
         for client in ('web_embedded', None):
             cmd = common[:1] + (['--extractor-args', 'youtube:player_client=' + client] if client else []) + common[1:]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            print('MB_STAGE '+json.dumps({'stage':'resolving'}),flush=True)
+            child=subprocess.Popen(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,bufsize=1)
+            log=[]
+            for line in child.stdout:
+                if line.startswith('MB_PROGRESS '):print(line.strip(),flush=True)
+                else:
+                    log.append(line)
+                    if len(log)>40:log.pop(0)
+            child.wait();child.stdout.close()
+            result=subprocess.CompletedProcess(cmd,child.returncode,stderr=''.join(log))
             if result.returncode == 0:
                 break
             if client and 'Requested format is not available' in result.stderr:
                 print('当前客户端未提供 M4A，尝试默认客户端…', flush=True)
                 continue
             raise RuntimeError(user_error(result.stderr))
+        print('MB_STAGE '+json.dumps({'stage':'tagging'}),flush=True)
         source = Path(report.read_text().strip())
         inspect(source)
         dest = target / source.name
