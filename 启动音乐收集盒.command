@@ -20,6 +20,10 @@ if ! /usr/bin/xcode-select -p >/dev/null 2>&1; then
   read '?按回车退出'
   exit 1
 fi
+if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3,10))'; then
+  brew install python || exit 1
+  rehash
+fi
 if [[ ! -x .venv/bin/python ]]; then
   echo '首次运行：正在安装工具依赖…'
   python3 -m venv .venv || exit 1
