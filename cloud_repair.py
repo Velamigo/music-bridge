@@ -1,5 +1,7 @@
 """Account-bound bulk cloud matching previews; no writes until explicit confirmation."""
 import time
+import json
+from pathlib import Path
 import cloud_manage as manage
 from ncm_client import NcmError,CLIENT
 PLANS={}
@@ -56,7 +58,28 @@ def apply(body,progress=lambda text:None):
                 result=manage.apply(dict(user_id=uid,plan_id=token,confirmed=True))
                 results.append(dict(title=item['before']['title'],**result))
                 if result['state']!='verified':break
+            except NcmError as exc:
+                if getattr(exc,'kind','')=='unsupported':
+                    results.append(dict(title=item['before']['title'],state='unsupported',message=str(exc)))
+                    continue
+                results.append(dict(title=item['before']['title'],state='unconfirmed',message=str(exc)+' 已停止后续操作，请核对云盘。'))
+                break
             except Exception:
                 results.append(dict(title=item['before']['title'],state='unconfirmed',message='本次结果未确认，已停止后续操作；请核对云盘后再检查'))
                 break
-        return dict(results=results,remaining=len(selected)-len(results),message=f'已核对 {sum(x["state"]=="verified" for x in results)} / {len(selected)} 首的网易云匹配关系。客户端封面显示仍需刷新验证。')
+        result=dict(results=results,remaining=len(selected)-len(results),message=f'已修正 {sum(x["state"]=="verified" for x in results)} 首 · 不支持 {sum(x["state"]=="unsupported" for x in results)} 首 · 未处理 {len(selected)-len(results)} 首')
+        save_result(uid,result)
+        return result
+
+
+def save_result(uid,result):
+    folder=manage.STATE/'repair-results';folder.mkdir(parents=True,exist_ok=True,mode=0o700)
+    path=folder/(str(uid)+'.json');temp=path.with_suffix('.tmp')
+    temp.write_text(json.dumps(result,ensure_ascii=False));temp.chmod(0o600);temp.replace(path)
+
+def last_result(body):
+    with CLIENT.lock:
+        uid=manage.current_user(body.get('user_id'))
+        path=manage.STATE/'repair-results'/(uid+'.json')
+        if not path.exists():return {'results':[],'message':'还没有修正记录'}
+        return json.loads(path.read_text())

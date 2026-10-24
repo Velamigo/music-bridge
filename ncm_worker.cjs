@@ -120,6 +120,7 @@ function safeError(error, action) {
   const code = Number(error?.code || error?.body?.code || error?.status || 0);
   if (code === 301 || code === 302) { try{forgetSession()}catch{} cookie = {}; user = null; return { code: 301, message: '网易云登录失效，请重新扫码。' }; }
   if (code === 429 || code === 405) return { code, message: '网易云暂时限制请求，请稍后重试。' };
+  if (error?.kind === 'unsupported') return {code,kind:'unsupported',message:'网易云不支持这首歌的匹配修正，未修改。'};
   if (error?.safeMessage) return { code, message: error.safeMessage };
   if (action?.startsWith('manage_')) return { code, message: ['manage_delete', 'manage_match'].includes(action)
     ? '云盘修改结果未确认，请刷新列表核对，不要重复提交。'

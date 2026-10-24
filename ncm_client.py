@@ -60,7 +60,9 @@ class Client:
                 raise NcmError('网易云组件连接中断，请重新扫码登录。') from None
             self.public = result.get('session', self.public)
             if not result.get('ok'):
-                raise NcmError(result.get('error', {}).get('message', '网易云请求失败。'))
+                error = NcmError(result.get('error', {}).get('message', '网易云请求失败。'))
+                error.kind = result.get('error', {}).get('kind', '')
+                raise error
             return result['data']
 
 CLIENT = Client()

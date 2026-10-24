@@ -3,7 +3,7 @@ function checkedBody(name, response) {
   const body = response.body || {};
   const code = body.code ?? (name === 'login_status' ? body.data?.code : undefined);
   if (code !== 200) {
-    throw Object.assign(new Error('NetEase request failed'), { code: code || response.status, stage: name });
+    throw Object.assign(new Error('NetEase request failed'), { code: code || response.status, stage: name, kind: name === 'cloud_match' && code === 400 && (body.message || body.msg) === '当前歌曲不支持匹配' ? 'unsupported' : '' });
   }
   return body;
 }
